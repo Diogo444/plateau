@@ -1,0 +1,133 @@
+/* Styles généraux */
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f8f9fa;
+    margin: 0;
+    padding: 0;
+    color: #333;
+}
+
+/* Header */
+header {
+    background-color: #007bff;
+    color: white;
+    padding: 20px;
+    text-align: center;
+}
+
+h1 {
+    font-size: 1.8rem;
+    margin: 0;
+}
+
+/* Conteneur principal */
+main {
+    width: 90%;
+    max-width: 600px;
+    margin: 20px auto;
+}
+
+/* Section de jeu */
+#gameBoard,
+#history {
+    background-color: white;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 8px;
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+    border-left: 5px solid #007bff;
+}
+
+/* Titres de section */
+h2 {
+    color: #007bff;
+    font-size: 1.2rem;
+    border-bottom: 2px solid #ddd;
+    padding-bottom: 5px;
+    margin-bottom: 10px;
+}
+
+/* Case actuelle */
+#currentCase {
+    font-size: 1.2rem;
+    font-weight: bold;
+    padding: 10px;
+    background: #f1f1f1;
+    border-radius: 5px;
+    text-align: center;
+}
+
+/* Liste des choix */
+#choicesList {
+    list-style-type: none;
+    padding: 0;
+}
+
+#choicesList li {
+    margin-bottom: 10px;
+}
+
+#choicesList button {
+    width: 100%;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+#choicesList button:hover {
+    background-color: #0056b3;
+}
+
+/* Bouton Recommencer */
+#restart {
+    display: block;
+    margin: 15px auto;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+#restart:hover {
+    background-color: #218838;
+}
+
+/* Historique */
+#historyList {
+    list-style-type: none;
+    padding: 0;
+}
+
+#historyList li {
+    background: #f8f9fa;
+    padding: 8px;
+    border-radius: 5px;
+    margin-bottom: 5px;
+    text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 500px) {
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    main {
+        width: 95%;
+    }
+
+    #choicesList button {
+        font-size: 0.9rem;
+        padding: 8px;
+    }
+
+    #restart {
+        font-size: 0.9rem;
+    }
+}

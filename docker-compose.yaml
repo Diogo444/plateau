@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: plateau_app
+    environment:
+      - PORT=3000
+      - DB_HOST=db
+      - DB_USER=plateau
+      - DB_PASS=Plateau70
+      - DB_NAME=plateau
+    depends_on:
+      - db
+    restart: always
+    networks:
+      - caddy_net
+
+  db:
+    image: mysql:8.0
+    container_name: plateau_db
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=plateau
+      - MYSQL_USER=plateau
+      - MYSQL_PASSWORD=Plateau70
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - caddy_net
+
+volumes:
+  db_data:
+
+networks:
+  caddy_net:
+    external: true
