@@ -1,16 +1,22 @@
-/**
- * admin.js
- *
- * Gestion de la création, modification, suppression des cases
- * et connexions d'un plateau, avec enregistrement temporaire dans le localStorage.
- */
+/** @format */
 
+// admin.js
+// Interface d’administration : gestion des cases, connexions, création et modification des plateaux
+
+let loadedBoardId = null;
 const board = {
-  caseNames: {}, // stocke : { caseId: caseName }
-  cases: {}      // stocke les connexions : { sourceCase: { arrowLabel: destinationCase } }
+  caseNames: {},
+  connections: [],
+  caseOrder: [],
 };
+const STORAGE_KEY = "boardDraft";
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  console.log("✅ admin.js chargé et DOM prêt");
+
+  // Sélecteurs
+  const existingBoardsSelect = document.getElementById("existingBoards");
+  const loadBoardBtn = document.getElementById("loadBoardBtn");
   const caseForm = document.getElementById("caseForm");
   const connectionForm = document.getElementById("connectionForm");
   const caseList = document.getElementById("caseList");
@@ -21,285 +27,268 @@ document.addEventListener("DOMContentLoaded", () => {
   const destinationCaseSelect = document.getElementById("destinationCase");
   const boardNameInput = document.getElementById("boardName");
 
-  const STORAGE_KEY = "boardDraft";
-
-  /** Enregistre l'état actuel du plateau dans le localStorage */
-  function saveDraft() {
-    const dataToSave = {
-      boardName: boardNameInput.value.trim(),
-      board
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-  }
-
-  /** Charge les données enregistrées (le brouillon) */
-  function loadDraft() {
-    const draft = localStorage.getItem(STORAGE_KEY);
-    if (draft) {
-      try {
-        const data = JSON.parse(draft);
-        boardNameInput.value = data.boardName || "";
-        if (data.board) {
-          board.caseNames = data.board.caseNames || {};
-          board.cases = data.board.cases || {};
-        }
-        updateCaseList();
-        updateCaseSelects();
-        updateConnectionList();
-        updateBoardPreview();
-      } catch (e) {
-        console.error("Erreur lors du chargement du brouillon :", e);
-      }
+  // Charger la liste des plateaux existants
+  async function fetchBoardsList() {
+    try {
+      const res = await fetch("/api/plateaux-list");
+      const list = await res.json();
+      list.forEach((b) => existingBoardsSelect.add(new Option(b.name, b.id)));
+    } catch (err) {
+      console.error("Erreur récupération liste plateaux :", err);
     }
   }
+  await fetchBoardsList();
 
-  /** Supprime le brouillon du localStorage (appelé après publication) */
+  // Charger un plateau existant dans l’interface
+  loadBoardBtn.addEventListener("click", async () => {
+    const id = existingBoardsSelect.value;
+    if (!id) return alert("Veuillez sélectionner un plateau.");
+    try {
+      const res = await fetch(`/api/plateau/${id}`);
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      // Remplir le board
+      board.caseNames = { ...data.caseNames };
+      board.caseOrder = [...data.caseOrder];
+      board.connections = [...data.connections];
+      boardNameInput.value = data.name;
+      loadedBoardId = id;
+      refreshAll();
+    } catch (err) {
+      console.error("Erreur chargement plateau :", err);
+      alert("Impossible de charger le plateau.");
+    }
+  });
+
+  // LocalStorage helpers
+  function saveDraft() {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ boardName: boardNameInput.value.trim(), board })
+    );
+  }
+  function loadDraft() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const saved = JSON.parse(raw);
+      boardNameInput.value = saved.boardName || "";
+      Object.assign(board.caseNames, saved.board?.caseNames || {});
+      board.connections = Array.isArray(saved.board?.connections)
+        ? saved.board.connections
+        : [];
+      board.caseOrder = Array.isArray(saved.board?.caseOrder)
+        ? saved.board.caseOrder.filter((id) => id in board.caseNames)
+        : Object.keys(board.caseNames);
+      console.log("📥 Brouillon chargé =>", board);
+      refreshAll();
+    } catch (e) {
+      console.error("Brouillon illisible :", e);
+    }
+  }
   function clearDraft() {
     localStorage.removeItem(STORAGE_KEY);
   }
 
-  // Met à jour les listes déroulantes avec les cases créées
-  function updateCaseSelects() {
-    sourceCaseSelect.innerHTML = "";
-    destinationCaseSelect.innerHTML = "";
-    for (const id in board.caseNames) {
-      const option1 = document.createElement("option");
-      option1.value = id;
-      option1.textContent = `${id} - ${board.caseNames[id]}`;
-      sourceCaseSelect.appendChild(option1);
-
-      const option2 = document.createElement("option");
-      option2.value = id;
-      option2.textContent = `${id} - ${board.caseNames[id]}`;
-      destinationCaseSelect.appendChild(option2);
-    }
-  }
-
-  // Met à jour l'aperçu du plateau en affichant les données en JSON
+  // Mise à jour vue & stockage
   function updateBoardPreview() {
-    const previewData = {
+    const cases = {};
+    board.connections.forEach(({ source, arrow, dest }) => {
+      if (!cases[source]) cases[source] = [];
+      cases[source].push({ arrow, dest });
+    });
+    const preview = {
       name: boardNameInput.value.trim() || "(Nom du plateau non défini)",
-      ...board,
+      caseNames: board.caseNames,
+      cases,
+      caseOrder: board.caseOrder,
+      connections: board.connections,
     };
-    boardData.textContent = JSON.stringify(previewData, null, 2);
+    boardData.textContent = JSON.stringify(preview, null, 2);
     saveDraft();
   }
 
-  // --- Gestion des Cases ---
-
-  // Regénère la liste des cases avec les options "Modifier" et "Supprimer"
-  function updateCaseList() {
-    caseList.innerHTML = "";
-    for (let id in board.caseNames) {
-      const li = createCaseListItem(id, board.caseNames[id]);
-      caseList.appendChild(li);
-    }
-  }
-
-  // Crée un élément de liste pour une case avec boutons d'édition et de suppression
-  function createCaseListItem(caseId, caseName) {
-    const li = document.createElement("li");
-    
-    // Contenu texte
-    const span = document.createElement("span");
-    span.textContent = `${caseId} : ${caseName}`;
-    li.appendChild(span);
-
-    // Bouton pour modifier la case
-    const editButton = document.createElement("button");
-    editButton.textContent = "Modifier";
-    editButton.addEventListener("click", () => editCase(caseId));
-    li.appendChild(editButton);
-
-    // Bouton pour supprimer la case
-    const deleteButton = document.createElement("button");
-    deleteButton.textContent = "Supprimer";
-    deleteButton.addEventListener("click", () => deleteCase(caseId));
-    li.appendChild(deleteButton);
-
-    return li;
-  }
-
-  // Permet de modifier le nom d'une case
-  function editCase(caseId) {
-    const newName = prompt("Entrez le nouveau nom pour la case :", board.caseNames[caseId]);
-    if (newName !== null && newName.trim() !== "") {
-      board.caseNames[caseId] = newName.trim();
-      updateCaseList();
-      updateCaseSelects();
-      updateBoardPreview();
-    }
-  }
-
-  // Permet de supprimer une case et ses connexions associées (en tant que source)
-  function deleteCase(caseId) {
-    if (confirm("Voulez-vous vraiment supprimer cette case ?")) {
-      delete board.caseNames[caseId];
-      delete board.cases[caseId]; // supprime les connexions dont cette case est la source
-      updateCaseList();
-      updateCaseSelects();
-      updateBoardPreview();
-    }
-  }
-
-  // --- Gestion des Connexions ---
-
-  // Regénère la liste des connexions à partir de board.cases
-  function updateConnectionList() {
-    connectionList.innerHTML = "";
-    for (let source in board.cases) {
-      for (let arrow in board.cases[source]) {
-        const dest = board.cases[source][arrow];
-        const div = createConnectionElement(source, arrow, dest);
-        connectionList.appendChild(div);
-      }
-    }
-    saveDraft();
-  }
-
-  // Crée un élément pour afficher une connexion avec boutons "Modifier" et "Supprimer"
-  function createConnectionElement(source, arrow, destination) {
-    const div = document.createElement("div");
-    
-    // Élément de texte contenant la connexion
-    const span = document.createElement("span");
-    span.textContent = `${source} --[${arrow}]--> ${destination}`;
-    div.appendChild(span);
-
-    // Bouton pour modifier la connexion
-    const editButton = document.createElement("button");
-    editButton.textContent = "Modifier";
-    editButton.addEventListener("click", () => editConnection(source, arrow));
-    div.appendChild(editButton);
-
-    // Bouton pour supprimer la connexion
-    const deleteButton = document.createElement("button");
-    deleteButton.textContent = "Supprimer";
-    deleteButton.addEventListener("click", () => deleteConnection(source, arrow));
-    div.appendChild(deleteButton);
-
-    return div;
-  }
-
-  // Permet de modifier le label et la destination d'une connexion
-  function editConnection(source, arrow) {
-    const currentDest = board.cases[source][arrow];
-    const newArrow = prompt("Entrez le nouveau label de flèche :", arrow);
-    if (newArrow === null || newArrow.trim() === "") return;
-    const newDest = prompt("Entrez la nouvelle case destination :", currentDest);
-    if (newDest === null || newDest.trim() === "") return;
-
-    const trimmedNewArrow = newArrow.trim();
-    const trimmedNewDest = newDest.trim();
-    // Si le label change, on supprime l'ancienne entrée
-    if (trimmedNewArrow !== arrow) {
-      delete board.cases[source][arrow];
-    }
-    board.cases[source][trimmedNewArrow] = trimmedNewDest;
-
-    updateConnectionList();
+  function refreshAll() {
+    renderCaseList();
+    updateCaseSelects();
+    renderConnectionList();
     updateBoardPreview();
   }
 
-  // Permet de supprimer une connexion donnée
-  function deleteConnection(source, arrow) {
-    if (confirm("Voulez-vous vraiment supprimer cette connexion ?")) {
-      delete board.cases[source][arrow];
-      updateConnectionList();
-      updateBoardPreview();
-    }
+  // Gestion des cases
+  function renderCaseList() {
+    caseList.innerHTML = "";
+    board.caseOrder.forEach((id, idx) => {
+      const name = board.caseNames[id];
+      const li = document.createElement("li");
+      li.textContent = `${id} : ${name}`;
+      const btnUp = document.createElement("button");
+      btnUp.type = "button";
+      btnUp.textContent = "▲";
+      btnUp.disabled = idx === 0;
+      btnUp.addEventListener("click", () => moveCase(id, -1));
+      const btnDown = document.createElement("button");
+      btnDown.type = "button";
+      btnDown.textContent = "▼";
+      btnDown.disabled = idx === board.caseOrder.length - 1;
+      btnDown.addEventListener("click", () => moveCase(id, +1));
+      const btnEdit = document.createElement("button");
+      btnEdit.type = "button";
+      btnEdit.textContent = "Modifier";
+      btnEdit.addEventListener("click", () => {
+        const newName = prompt("Nouveau nom :", name)?.trim();
+        if (!newName) return;
+        board.caseNames[id] = newName;
+        refreshAll();
+      });
+      const btnDel = document.createElement("button");
+      btnDel.type = "button";
+      btnDel.textContent = "Supprimer";
+      btnDel.addEventListener("click", () => {
+        if (!confirm("Supprimer cette case ?")) return;
+        delete board.caseNames[id];
+        board.caseOrder = board.caseOrder.filter((k) => k !== id);
+        board.connections = board.connections.filter((c) => c.source !== id);
+        refreshAll();
+      });
+      li.prepend(btnUp, btnDown);
+      li.append(btnEdit, btnDel);
+      caseList.append(li);
+    });
+  }
+  function moveCase(id, delta) {
+    const idx = board.caseOrder.indexOf(id);
+    const target = idx + delta;
+    if (target < 0 || target >= board.caseOrder.length) return;
+    [board.caseOrder[idx], board.caseOrder[target]] = [
+      board.caseOrder[target],
+      board.caseOrder[idx],
+    ];
+    refreshAll();
+  }
+  function updateCaseSelects() {
+    sourceCaseSelect.innerHTML = "";
+    destinationCaseSelect.innerHTML = "";
+    board.caseOrder.forEach((id) => {
+      const name = board.caseNames[id];
+      sourceCaseSelect.add(new Option(`${id} - ${name}`, id));
+      destinationCaseSelect.add(new Option(`${id} - ${name}`, id));
+    });
   }
 
-  // --- Événements sur les formulaires ---
+  // Gestion des connexions
+  function renderConnectionList() {
+    connectionList.innerHTML = "";
+    board.connections.forEach((conn, idx) => {
+      const { source, arrow, dest } = conn;
+      const row = document.createElement("div");
+      row.classList.add("conn-row");
+      const btnUp = document.createElement("button");
+      btnUp.type = "button";
+      btnUp.textContent = "▲";
+      btnUp.disabled = idx === 0;
+      btnUp.addEventListener("click", () => {
+        [board.connections[idx - 1], board.connections[idx]] = [
+          board.connections[idx],
+          board.connections[idx - 1],
+        ];
+        refreshAll();
+      });
+      const btnDown = document.createElement("button");
+      btnDown.type = "button";
+      btnDown.textContent = "▼";
+      btnDown.disabled = idx === board.connections.length - 1;
+      btnDown.addEventListener("click", () => {
+        [board.connections[idx], board.connections[idx + 1]] = [
+          board.connections[idx + 1],
+          board.connections[idx],
+        ];
+        refreshAll();
+      });
+      const span = document.createElement("span");
+      span.textContent = `${source} --[${arrow}]--> ${dest}`;
+      const btnEdit = document.createElement("button");
+      btnEdit.type = "button";
+      btnEdit.textContent = "Modifier";
+      btnEdit.addEventListener("click", () => {
+        const newArrow = prompt("Label :", arrow)?.trim();
+        const newDest = prompt("Destination :", dest)?.trim();
+        if (!newArrow || !newDest) return;
+        conn.arrow = newArrow;
+        conn.dest = newDest;
+        refreshAll();
+      });
+      const btnDel = document.createElement("button");
+      btnDel.type = "button";
+      btnDel.textContent = "Supprimer";
+      btnDel.addEventListener("click", () => {
+        if (!confirm("Supprimer cette connexion ?")) return;
+        board.connections.splice(idx, 1);
+        refreshAll();
+      });
+      row.append(btnUp, btnDown, span, btnEdit, btnDel);
+      connectionList.append(row);
+    });
+  }
 
-  // Ajout d'une case
+  // Handlers des formulaires
   caseForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    const caseId = document.getElementById("caseId").value.trim();
-    const caseName = document.getElementById("caseName").value.trim();
-    if (caseId && caseName) {
-      board.caseNames[caseId] = caseName;
-      // Initialise l'objet de connexions pour cette case s'il n'existe pas déjà
-      if (!board.cases[caseId]) {
-        board.cases[caseId] = {};
-      }
-      updateCaseList();
-      updateCaseSelects();
-      updateBoardPreview();
-      caseForm.reset();
-    }
+    const id = document.getElementById("caseId").value.trim();
+    const name = document.getElementById("caseName").value.trim();
+    if (!id || !name) return;
+    board.caseNames[id] = name;
+    board.caseOrder.push(id);
+    refreshAll();
+    caseForm.reset();
   });
-
-  // Ajout d'une connexion entre deux cases
   connectionForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    const source = document.getElementById("sourceCase").value;
-    const arrow = document.getElementById("arrowLabel").value.trim();
-    const destination = document.getElementById("destinationCase").value;
-    if (source && arrow && destination) {
-      if (!board.cases[source]) {
-        board.cases[source] = {};
-      }
-      board.cases[source][arrow] = destination;
-      updateConnectionList();
-      updateBoardPreview();
-      connectionForm.reset();
-    }
+    const src = sourceCaseSelect.value;
+    const lbl = document.getElementById("arrowLabel").value.trim();
+    const dest = destinationCaseSelect.value;
+    if (!src || !lbl || !dest) return;
+    board.connections.push({ source: src, arrow: lbl, dest });
+    refreshAll();
+    connectionForm.reset();
   });
 
-  // Mise à jour de l'aperçu lors du changement du nom du plateau
-  boardNameInput.addEventListener("input", updateBoardPreview);
+  // Publication / mise à jour du plateau
+  publishBoard.addEventListener("click", async () => {
+    const name = boardNameInput.value.trim();
+    if (!name) return alert("Nom du plateau obligatoire");
+    if (!Object.keys(board.caseNames).length)
+      return alert("Ajoutez au moins une case");
 
-  // Publication du plateau
-  publishBoard.addEventListener("click", () => {
-    const boardName = boardNameInput.value.trim();
-    if (!boardName) {
-      alert("Veuillez entrer un nom pour le plateau avant de publier.");
-      boardNameInput.focus();
-      return;
-    }
-    if (Object.keys(board.caseNames).length === 0) {
-      alert("Veuillez ajouter au moins une case avant de publier le plateau.");
-      return;
-    }
-    const dataToSend = {
-      name: boardName,
-      ...board,
-    };
-    fetch("/api/plateau", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(dataToSend),
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Erreur HTTP: ${response.status}`);
-        }
-        return response.text();
-      })
-      .then((data) => {
-        alert(`Plateau "${boardName}" publié avec succès!`);
-        clearDraft(); // Efface le brouillon après publication
-      })
-      .catch((error) => {
-        console.error("Une erreur s'est produite lors de la publication du plateau :", error);
-        alert(`Erreur lors de la publication: ${error.message}`);
+    const payload = { name, ...board };
+    const url = loadedBoardId
+      ? `/api/plateau/${loadedBoardId}`
+      : "/api/plateau";
+    const method = loadedBoardId ? "PUT" : "POST";
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
+      if (!res.ok) throw new Error(res.status);
+      alert(loadedBoardId ? "Modifications enregistrées." : "Plateau créé !");
+      clearDraft();
+      if (!loadedBoardId) loadedBoardId = null;
+    } catch (err) {
+      console.error("Erreur publication :", err);
+      alert(`Erreur: ${err.message}`);
+    }
   });
 
-  // À l'initialisation, on charge le brouillon existant s'il y en a un.
-  if (localStorage.getItem(STORAGE_KEY)) {
-    if (confirm("Un brouillon a été trouvé. Voulez-vous le charger ?")) {
-      loadDraft();
-    } else {
-      clearDraft();
-    }
+  // Chargement brouillon si existant
+  if (
+    localStorage.getItem(STORAGE_KEY) &&
+    confirm("Charger le brouillon existant ?")
+  ) {
+    loadDraft();
+  } else {
+    refreshAll();
   }
-
-  // Initialisation des affichages
-  updateCaseList();
-  updateConnectionList();
-  updateBoardPreview();
 });

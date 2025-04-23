@@ -28,8 +28,10 @@ services:
     volumes:
       - db_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    
     networks:
       - caddy_net
+
 
 volumes:
   db_data:

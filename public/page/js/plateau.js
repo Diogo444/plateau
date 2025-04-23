@@ -1,4 +1,7 @@
 /** @format */
+// plateau.js
+// Gestion du jeu de plateau côté client avec l'ordre des connexions
+
 document.addEventListener("DOMContentLoaded", async () => {
   const plateauTitle = document.getElementById("plateauTitle");
   const currentCaseDisplay = document.getElementById("currentCase");
@@ -7,80 +10,100 @@ document.addEventListener("DOMContentLoaded", async () => {
   const restartButton = document.getElementById("restart");
 
   let plateauData = null;
-  let currentCase = "case1"; // Utilisation de la première case existante
+  let currentCase = null;
   let lastCase = null;
   let history = [];
 
   // Récupérer l'ID du plateau depuis l'URL
   const plateauId = window.location.pathname.split("/").pop();
-  console.log("Plateau ID:", plateauId);
 
   try {
     const response = await fetch(`/api/plateau/${plateauId}`);
-    if (!response.ok) {
-      throw new Error(`Erreur HTTP: ${response.status}`);
+    if (!response.ok) throw new Error(`Erreur HTTP : ${response.status}`);
+    plateauData = await response.json();
+
+    // Afficher le nom du plateau
+    plateauTitle.textContent = plateauData.name;
+
+    // Initialiser sur la première connexion
+    if (
+      Array.isArray(plateauData.connections) &&
+      plateauData.connections.length
+    ) {
+      currentCase = plateauData.connections[0].source;
+    } else {
+      // Fallback : première clé de caseNames
+      currentCase = Object.keys(plateauData.caseNames || {})[0] || null;
     }
-    const plateau = await response.json();
 
-    // Stocke les données du plateau SANS JSON.parse()
-    plateauData = plateau.data; // ✅ Correction ici
-    plateauTitle.textContent = plateau.name;
-
-    updateChoices(); // Affiche les choix dès le début
-  } catch (error) {
-    console.error("Erreur lors du chargement du plateau :", error);
+    updateChoices();
+  } catch (err) {
+    console.error("Erreur lors du chargement du plateau :", err);
     plateauTitle.textContent = "Erreur";
-    currentCaseDisplay.textContent = "Impossible de charger ce plateau.";
+    currentCaseDisplay.textContent = "Impossible de charger le plateau.";
+    choicesList.innerHTML = "";
   }
 
   function updateChoices() {
-    if (!plateauData) return;
+    if (!plateauData || !currentCase) return;
+    const { caseNames, connections } = plateauData;
 
-    // Vérifie si la case actuelle existe
-    if (!plateauData.caseNames[currentCase]) {
-      console.error(`Case "${currentCase}" introuvable dans le plateau.`);
-      currentCaseDisplay.textContent = "Erreur : Case introuvable.";
-      return;
+    // Afficher la case actuelle
+    const label = caseNames[currentCase] || currentCase;
+    currentCaseDisplay.textContent = `Case actuelle : ${label}`;
+
+    // Filtrer les connexions valides (pas de retour immédiat)
+    const options = connections.filter(
+      (c) => c.source === currentCase && c.dest !== lastCase
+    );
+
+    // Réinitialiser la liste des choix
+    choicesList.innerHTML = "";
+
+    if (!options.length) {
+      const li = document.createElement("li");
+      li.textContent = "Aucun choix disponible.";
+      choicesList.appendChild(li);
+    } else {
+      options.forEach(({ arrow, dest }) => {
+        const li = document.createElement("li");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = `Flèche ${arrow}`;
+        btn.addEventListener("click", () => moveTo(dest));
+        li.appendChild(btn);
+        choicesList.appendChild(li);
+      });
     }
 
-    // Met à jour le texte de la case actuelle
-    currentCaseDisplay.textContent = `Case actuelle : ${plateauData.caseNames[currentCase]}`;
-
-    // Efface la liste des choix
-    choicesList.innerHTML = "";
-    const availableChoices = Object.keys(
-      plateauData.cases[currentCase] || {}
-    ).filter((arrow) => plateauData.cases[currentCase][arrow] !== lastCase);
-
-    availableChoices.forEach((arrow) => {
-      const li = document.createElement("li");
-      const button = document.createElement("button");
-      button.textContent = `Flèche ${arrow}`;
-      button.onclick = () => moveTo(plateauData.cases[currentCase][arrow]);
-      li.appendChild(button);
-      choicesList.appendChild(li);
-    });
-
-    // Met à jour l'affichage de l'historique
+    // Mise à jour de l'historique
     historyList.innerHTML = "";
-    history.forEach((visitedCase, index) => {
+    history.forEach((c, idx) => {
       const li = document.createElement("li");
-      li.textContent = `${index + 1}. ${plateauData.caseNames[visitedCase]}`;
+      li.textContent = `${idx + 1}. ${caseNames[c] || c}`;
       historyList.appendChild(li);
     });
   }
 
-  function moveTo(newCase) {
+  function moveTo(dest) {
     lastCase = currentCase;
     history.push(currentCase);
-    currentCase = newCase;
+    currentCase = dest;
     updateChoices();
   }
 
-  restartButton.onclick = () => {
-    currentCase = "case1"; // Remet sur la première case
-    lastCase = null;
+  restartButton.addEventListener("click", () => {
+    // Réinitialiser historique et position
     history = [];
+    lastCase = null;
+    if (
+      Array.isArray(plateauData.connections) &&
+      plateauData.connections.length
+    ) {
+      currentCase = plateauData.connections[0].source;
+    } else {
+      currentCase = Object.keys(plateauData.caseNames || {})[0] || null;
+    }
     updateChoices();
-  };
+  });
 });
